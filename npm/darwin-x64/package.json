@@ -1,0 +1,18 @@
+{
+  "name": "symbol_auto_signer-darwin-x64",
+  "version": "0.0.0",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "main": "symbol_auto_signer.darwin-x64.node",
+  "files": [
+    "symbol_auto_signer.darwin-x64.node"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">= 10"
+  }
+}
