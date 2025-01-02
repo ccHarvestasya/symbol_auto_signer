@@ -310,9 +310,8 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { sum, registerPrivateKey, deletePrivateKey, readPrivateKey } = nativeBinding
+const { registerPrivateKey, deletePrivateKey, readPrivateKey } = nativeBinding
 
-module.exports.sum = sum
 module.exports.registerPrivateKey = registerPrivateKey
 module.exports.deletePrivateKey = deletePrivateKey
 module.exports.readPrivateKey = readPrivateKey

@@ -2,7 +2,7 @@
 
 use std::str::FromStr;
 
-use ed25519_dalek::{ed25519::signature::SignerMut, Keypair, PublicKey, SecretKey};
+use ed25519_dalek::{ed25519::signature::SignerMut, Keypair, PublicKey, SecretKey, Signature};
 use hex::FromHex;
 use napi::{Error, Status};
 use rand::rngs::OsRng;
@@ -33,11 +33,6 @@ const TRANSACTION_HEADER_SIZE: usize = 108;
 const AGGREGATE_HASHED_SIZE: usize = 52;
 const AGGREGATE_BONDED: u16 = 0x4241;
 const AGGREGATE_COMPLETE: u16 = 0x4141;
-
-#[napi]
-pub fn sum(a: i32, b: i32) -> i32 {
-  a + b
-}
 
 #[napi]
 pub fn register_private_key(pri_key: Option<String>) -> Result<(), Error> {
@@ -79,7 +74,7 @@ pub fn register_private_key(pri_key: Option<String>) -> Result<(), Error> {
   create_nv_index(&mut context);
 
   // NVメモリに書き込み
-  let pk_bytes = Vec::from_hex(&pk).expect("Failed to convert hex string to bytes");
+  let pk_bytes: Vec<u8> = Vec::from_hex(&pk).expect("Failed to convert hex string to bytes");
   write_nv_memory(&mut context, pk_bytes);
 
   Ok(())
@@ -119,7 +114,7 @@ pub fn read_private_key(generation_hash_seed: String, tx: String) -> String {
 
   let generation_hash_seed_bytes =
     Vec::from_hex(&generation_hash_seed).expect("Failed to convert hex string to bytes");
-  let tx_bytes = Vec::from_hex(&tx).expect("Failed to convert hex string to bytes");
+  let tx_bytes: Vec<u8> = Vec::from_hex(&tx).expect("Failed to convert hex string to bytes");
   // トランザクションのボディ部分のみ取り出す
   let tx_body: Vec<u8>;
   if is_aggregate_transaction(&tx_bytes) {
@@ -132,7 +127,7 @@ pub fn read_private_key(generation_hash_seed: String, tx: String) -> String {
   let mut tx_sign: Vec<u8> = generation_hash_seed_bytes.clone();
   tx_sign.extend(tx_body.clone());
   // 署名
-  let signature = keypair.sign(&tx_sign);
+  let signature: Signature = keypair.sign(&tx_sign);
 
   // 署名をトランザクションに埋め込む
   let signed_tx: Vec<u8> = [
