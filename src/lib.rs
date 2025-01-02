@@ -2,7 +2,7 @@
 
 use std::str::FromStr;
 
-use ed25519_dalek::Keypair;
+use ed25519_dalek::{ed25519::signature::SignerMut, Keypair, PublicKey, SecretKey};
 use hex::FromHex;
 use napi::{Error, Status};
 use rand::rngs::OsRng;
@@ -28,6 +28,11 @@ extern crate napi_derive;
 
 // NVインデックスの値
 const NV_INDEX_VAL: u32 = 0x01FFE00A;
+
+const TRANSACTION_HEADER_SIZE: usize = 108;
+const AGGREGATE_HASHED_SIZE: usize = 52;
+const AGGREGATE_BONDED: u16 = 0x4241;
+const AGGREGATE_COMPLETE: u16 = 0x4141;
 
 #[napi]
 pub fn sum(a: i32, b: i32) -> i32 {
@@ -95,7 +100,7 @@ pub fn delete_private_key() -> () {
 }
 
 #[napi]
-pub fn read_private_key() -> () {
+pub fn read_private_key(generation_hash_seed: String, tx: String) -> String {
   // TPMデバイスを指定
   let tcti_name_conf: TctiNameConf = TctiNameConf::Device(
     DeviceConfig::from_str("/dev/tpmrm0").expect("Failed to create DeviceConfig"),
@@ -105,7 +110,50 @@ pub fn read_private_key() -> () {
   // 認証セッションを開始
   start_auth_session(&mut context);
   // NVメモリから読み取り
-  read_nv_memory(&mut context);
+  let private_key: Vec<u8> = read_nv_memory(&mut context);
+
+  // 鍵ペア
+  let secret: SecretKey = SecretKey::from_bytes(&private_key).expect("Failed to create SecretKey");
+  let public: PublicKey = (&secret).into();
+  let mut keypair: Keypair = Keypair { secret, public };
+
+  let generation_hash_seed_bytes =
+    Vec::from_hex(&generation_hash_seed).expect("Failed to convert hex string to bytes");
+  let tx_bytes = Vec::from_hex(&tx).expect("Failed to convert hex string to bytes");
+  // トランザクションのボディ部分のみ取り出す
+  let tx_body: Vec<u8>;
+  if is_aggregate_transaction(&tx_bytes) {
+    tx_body =
+      tx_bytes[TRANSACTION_HEADER_SIZE..TRANSACTION_HEADER_SIZE + AGGREGATE_HASHED_SIZE].to_vec();
+  } else {
+    tx_body = tx_bytes[TRANSACTION_HEADER_SIZE..tx_bytes.len()].to_vec();
+  }
+  // ジェネレーションハッシュシードとトランザクションボディを連結
+  let mut tx_sign: Vec<u8> = generation_hash_seed_bytes.clone();
+  tx_sign.extend(tx_body.clone());
+  // 署名
+  let signature = keypair.sign(&tx_sign);
+
+  // 署名をトランザクションに埋め込む
+  let signed_tx: Vec<u8> = [
+    &tx_bytes[0..8],
+    &signature.to_bytes(),
+    &tx_bytes[signature.to_bytes().len() + 8..tx_bytes.len()],
+  ]
+  .concat();
+
+  hex::encode_upper(signed_tx)
+}
+
+/**
+ * トランザクションがアグリゲートトランザクションか判定
+ */
+fn is_aggregate_transaction(transaction_buffer: &[u8]) -> bool {
+  let transaction_type_offset = TRANSACTION_HEADER_SIZE + 2; // skip version and network byte
+  let transaction_type = ((transaction_buffer[transaction_type_offset + 1] as u16) << 8)
+    + transaction_buffer[transaction_type_offset] as u16;
+  let aggregate_types = [AGGREGATE_BONDED, AGGREGATE_COMPLETE];
+  aggregate_types.contains(&transaction_type)
 }
 
 /**
@@ -190,7 +238,7 @@ fn write_nv_memory(context: &mut Context, data: Vec<u8>) -> () {
 /**
  * NVメモリからデータを読み取る
  */
-fn read_nv_memory(context: &mut Context) -> () {
+fn read_nv_memory(context: &mut Context) -> Vec<u8> {
   // NVインデックスを定義
   let nv_index: NvIndexTpmHandle =
     NvIndexTpmHandle::new(NV_INDEX_VAL).expect("Failed to create NV index");
@@ -205,10 +253,12 @@ fn read_nv_memory(context: &mut Context) -> () {
     .nv_read(NvAuth::Owner, nv_index_handle.into(), 32, 0)
     .expect("Failed to read from NV memory");
 
-  println!(
-    "Read from NV memory: {}",
-    hex::encode_upper(read_buffer.as_slice())
-  );
+  // println!(
+  //   "Read from NV memory: {}",
+  //   hex::encode_upper(read_buffer.as_slice())
+  // );
+
+  read_buffer.to_vec()
 }
 
 /**
